@@ -66,9 +66,10 @@ class Trainer:
         self.scheduler = scheduler
         return
 
-    def train(self, epochs = 100, store_every = 1, save_path=None, device=None):
-
-        model = self.model.to(device=device)
+    def train(self, epochs = 100, store_every = 10, save_path=None, device=None):
+        
+        model = self.model
+        model = model.to(device=device)
         scheduler = self.scheduler 
         criterion = nn.CrossEntropyLoss()
 
@@ -76,40 +77,74 @@ class Trainer:
             
             train_correct_num = 0
             train_total = 0
-            train_cost_acum = 0.0
-            model.train()
+            train_cost_acum = 0.
+            
+            for mb, (x, y) in enumerate(self.train_loader, start=1):
 
-            for mb, (x,y) in enumerate(self.train_loader, start=1):
-                
+                model.train()
                 x = x.to(device=device, dtype=torch.float32)
-                y = y.to(device=device, dtype=torch.float32)
+                y = y.to(device=device, dtype=torch.long).squeeze(1)
                 scores = model(x)
-                scores = torch.Tensor.type(scores, dtype=torch.float32)
-
-                cost = criterion(scores[:,1,:,:], y[:,1,:,:])
-                self.optimiser.zero_grad()
+                
+                cost = F.cross_entropy(input=scores[:,1,:,:].float(), target=y.float())
+                optimiser.zero_grad()
                 cost.backward()
-                self.optimiser.step()
-
+                optimiser.step()
+                
                 if scheduler: 
                     scheduler.step()
                 
                 train_predictions = torch.argmax(scores, dim=1)
-
-                train_correct_num += (train_predictions == y[:,1,:,:]).sum()
+                
+                train_correct_num += (train_predictions == y).sum()
                 train_total += torch.numel(train_predictions)
                 train_cost_acum += cost.item()
-
+                
                 if mb%store_every == 0:
-
-                    val_cost, val_acc, dice, iou = accuracy(self.model, self.val_loader)
+                    
+                    val_cost, val_acc, dice, iou = self.accuracy(model=model, loader=self.val_loader, device=device)
                     train_acc = float(train_correct_num)/train_total
-                    train_cost_every = float(train_cost_acum)/mb                
-                    print(f'epoch: {epoch}, mb: {mb}/{len(self.train_loader)}, train cost: {train_cost_every:.4f}, val cost: {val_cost:.4f}, train acc: {train_acc:.10f},  val acc: {val_acc:.10f}, dice: {dice:.10f}, iou: {iou:.10f}')
+                    train_cost_every = float(train_cost_acum)/mb
+                    print(f'epoch: {epoch}, mb: {mb}, train cost: {train_cost_every:.4f}, val cost: {val_cost:.4f},'
+                        f'train acc: {train_acc:.4f}, val acc: {val_acc:.4f},'
+                        f'dice: {dice}, iou: {iou}')
+                    
+            if epoch % 10 == 0:
+                plt.imshow(train_predictions[0,:,:].detach().cpu().numpy())
+                plt.show()
         
         torch.save(model.state_dict(), save_path)
-                
         return self.model
+    
+           
+    def accuracy(self, model, loader, device):
+        correct = 0
+        intersection = 0
+        denom = 0
+        union = 0
+        total = 0
+        cost = 0.
+        #model = model.to(device=device)
+        with torch.no_grad():
+            for x, y in loader:
+                x = x.to(device, dtype = torch.float32)
+                y = y.to(device, dtype = torch.long).squeeze(1)
+                scores = model(x)
+                cost += (F.cross_entropy(input=scores[:,1,:,:].float(), target=y.float())).item()
+                # standard accuracy not optimal
+                preds = torch.argmax(scores, dim=1)
+                correct += (preds == y).sum()
+                total += torch.numel(preds)
+                #dice coefficient
+                intersection += (preds*y).sum()
+                denom += (preds + y).sum()
+                dice = 2*intersection/(denom + 1e-8)
+                #intersection over union
+                union += (preds + y - preds*y).sum()
+                iou = (intersection)/(union + 1e-8)
+                
+            return cost/len(loader), float(correct)/total, dice, iou    
+
 
 
 if __name__ == "__main__":
@@ -120,9 +155,8 @@ if __name__ == "__main__":
     EPOCHS = 50
     LEARNING_RATE = 5*1e-3
 
-    
-    TRAIN_PATH = './dataset/training/rgb3'
-    TRAIN_MASKS_PATH = './dataset/training/mask3'
+    TRAIN_PATH = './dataset/training/rgb4'
+    TRAIN_MASKS_PATH = './dataset/training/mask4'
     NAME = f'SegNet_{EPOCHS}epochs_{BATCH_SIZE}batch.pth'
     SAVE_PATH = f'./weights/{NAME}'
         
@@ -156,10 +190,11 @@ if __name__ == "__main__":
     trainer = Trainer()
     trainer.set_dataset(dataset)
     trainer.split_dataset(TRAIN_PERCENTAGE, BATCH_SIZE)
-    trainer.plot(BATCH_SIZE)
+    #trainer.plot(BATCH_SIZE)
     trainer.set_model(model)
     trainer.set_optimiser(optimiser)
     trainer.set_scheduler(scheduler)
     trainer.train(save_path= SAVE_PATH, 
                   device= torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+    
     
