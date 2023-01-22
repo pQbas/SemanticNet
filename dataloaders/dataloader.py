@@ -90,31 +90,15 @@ class Hand_Dataset(Dataset):
             hand[hand >= 100] = 1.0
             H,W = hand.shape
             hand = torch.reshape(hand, (1,H,W))
-            background = torch.ones((1,H,W), dtype=torch.long) - hand
-            mask = torch.cat((background, hand), dim=0)
+            #background = torch.ones((1,H,W), dtype=torch.long) - hand
+            #mask = torch.cat((background, hand), dim=0)
+            mask = hand
 
             if self.masks_transforms is not None:
                 mask = self.masks_transforms(mask)
-                
             #print(mask.shape)
         
         return img, mask
-
-
-# Transformations
-# transform_image = T.Compose([
-#     T.Resize([8,8]),
-#     T.ToTensor(),
-#     T.Normalize(
-#         mean=[0.485, 0.456, 0.406],
-#         std=[0.229, 0.224, 0.225],
-#     ),
-# ])
-
-# transform_mask = T.Compose([
-#     T.Resize([8,8]),
-#     T.ToTensor()
-# ])
 
 
 transform_image = T.Compose([
@@ -146,10 +130,5 @@ if __name__ == "__main__":
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
     imgs, masks = next(iter(train_loader))
-    #print(imgs.shape, masks.shape)
-
-    #print(masks)
 
     plot_mini_batch(imgs, masks, BATCH_SIZE=BATCH_SIZE)
-
-    # plot loss vs learning rate
